@@ -1,0 +1,60 @@
+name: Parcours balisés (OpenStreetMap)
+
+on:
+  schedule:
+    - cron: '17 3 2 * *'   # le 2 de chaque mois, 3 h 17 UTC
+  workflow_dispatch:        # bouton « Run workflow » pour lancer à la main
+  push:
+    branches: [main]
+    paths: ['build.py', '.github/workflows/build.yml']
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Outils
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q osmium-tool
+          pip install -q osmium
+
+      - name: Extrait France (Geofabrik)
+        run: |
+          curl -fsSL --retry 3 -o france.osm.pbf https://download.geofabrik.de/europe/france-latest.osm.pbf
+          ls -lh france.osm.pbf
+
+      - name: Garder seulement les parcours balisés
+        run: |
+          osmium tags-filter france.osm.pbf r/route=hiking,foot,bicycle,mtb -o routes.osm.pbf
+          rm france.osm.pbf
+          ls -lh routes.osm.pbf
+
+      - name: Préparer les tuiles
+        run: python3 build.py routes.osm.pbf out
+
+      - name: Publier sur la branche gh-pages (sans historique)
+        run: |
+          cd out
+          touch .nojekyll
+          cat > index.html <<'HTML'
+          <!doctype html><meta charset="utf-8"><title>Pisteo · données</title>
+          <p>Parcours balisés pour l'appli Pisteo, préparés chaque mois.<br>
+          Données © contributeurs <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> (ODbL).
+          Voir <a href="manifest.json">manifest.json</a>.</p>
+          HTML
+          git init -q -b gh-pages
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Données du $(date +%Y-%m-%d)"
+          git push -q -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" gh-pages
