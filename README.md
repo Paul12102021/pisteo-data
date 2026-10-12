@@ -1,0 +1,9 @@
+# pisteo-data
+
+Parcours balisés (GR, PR, véloroutes, EuroVelo, VTT) d'OpenStreetMap, préparés pour l'appli [Pisteo](https://paul12102021.github.io/balise-gpx/).
+
+- Chaque mois, une GitHub Action télécharge l'extrait France de Geofabrik, ne garde que les relations `route=hiking|foot|bicycle|mtb`, simplifie les tracés et les découpe en tuiles de 0,25° (`build.py`).
+- Le résultat est publié sur la branche `gh-pages` (écrasée à chaque fois, sans historique) et servi par GitHub Pages : `manifest.json` et `t/<x>_<y>.json`.
+- Lancer à la main : onglet **Actions** → **Parcours balisés** → **Run workflow**.
+
+Données © contributeurs OpenStreetMap, sous licence [ODbL](https://www.openstreetmap.org/copyright).
