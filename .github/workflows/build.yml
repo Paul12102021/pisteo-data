@@ -37,8 +37,22 @@ jobs:
         run: |
           osmium tags-filter france.osm.pbf r/route=hiking,foot,bicycle,mtb -o routes.osm.pbf
           # points utiles : eau, sources, toilettes, abris, refuges et cabanes
-          osmium tags-filter france.osm.pbf nw/amenity=drinking_water,toilets,shelter,fountain nw/natural=spring nw/tourism=alpine_hut,wilderness_hut nw/man_made=water_tap -o poi.osm.pbf
+          osmium tags-filter france.osm.pbf $POI -o poi-france.osm.pbf
           rm france.osm.pbf
+        env:
+          POI: nw/amenity=drinking_water,toilets,shelter,fountain nw/natural=spring,peak nw/tourism=alpine_hut,wilderness_hut,viewpoint nw/man_made=water_tap
+
+      - name: Points utiles des pays voisins (un pays à la fois, pour la place disque)
+        env:
+          POI: nw/amenity=drinking_water,toilets,shelter,fountain nw/natural=spring,peak nw/tourism=alpine_hut,wilderness_hut,viewpoint nw/man_made=water_tap
+        run: |
+          for c in andorra belgium luxembourg switzerland austria spain italy germany great-britain; do
+            curl -fsSL --retry 3 -o c.osm.pbf "https://download.geofabrik.de/europe/$c-latest.osm.pbf" || { echo "échec $c"; continue; }
+            osmium tags-filter c.osm.pbf $POI -o "poi-$c.osm.pbf"
+            rm c.osm.pbf
+          done
+          osmium merge poi-*.osm.pbf -o poi.osm.pbf
+          rm poi-*.osm.pbf
           ls -lh poi.osm.pbf
           ls -lh routes.osm.pbf
 
