@@ -6,7 +6,7 @@ on:
   workflow_dispatch:        # bouton « Run workflow » pour lancer à la main
   push:
     branches: [main]
-    paths: ['build.py']
+    paths: ['build.py', 'poi.py', '.github/workflows/build.yml']
 
 permissions:
   contents: write
@@ -36,11 +36,16 @@ jobs:
       - name: Garder seulement les parcours balisés
         run: |
           osmium tags-filter france.osm.pbf r/route=hiking,foot,bicycle,mtb -o routes.osm.pbf
+          # points utiles : eau, sources, toilettes, abris, refuges et cabanes
+          osmium tags-filter france.osm.pbf nw/amenity=drinking_water,toilets,shelter,fountain nw/natural=spring nw/tourism=alpine_hut,wilderness_hut nw/man_made=water_tap -o poi.osm.pbf
           rm france.osm.pbf
+          ls -lh poi.osm.pbf
           ls -lh routes.osm.pbf
 
       - name: Préparer les tuiles
-        run: python3 build.py routes.osm.pbf out
+        run: |
+          python3 build.py routes.osm.pbf out
+          python3 poi.py poi.osm.pbf out
 
       - name: Publier sur la branche gh-pages (sans historique)
         run: |
