@@ -6,6 +6,7 @@ Sortie : des tuiles JSON de 0,25° × 0,25° (p/<x>_<y>.json) et poi.json (liste
 
 Chaque tuile : {"p": [[lat, lon, type, nom?], …]} avec lat/lon arrondis à 1e-5 et type :
   w eau potable · s source · t toilettes · a abri · r refuge gardé · c cabane non gardée
+  p sommet (avec son altitude en 5e valeur) · v point de vue
 Données © contributeurs OpenStreetMap, licence ODbL.
 """
 import json, math, os, sys, time
@@ -38,6 +39,10 @@ def kind(t):
         return 'a'
     if a == 'toilets':
         return 't'
+    if n == 'peak' and (t.get('name') or t.get('ele')):
+        return 'p'
+    if tour == 'viewpoint':
+        return 'v'
     return None
 
 
@@ -51,7 +56,13 @@ class H(osmium.SimpleHandler):
         if not k:
             return
         name = t.get('name:fr') or t.get('name') or ''
-        self.out.append((round(lat, 5), round(lon, 5), k, name[:60]))
+        ele = None
+        if k == 'p':
+            try:
+                ele = round(float(str(t.get('ele', '')).replace(',', '.').split(';')[0].replace('m', '').strip()))
+            except ValueError:
+                ele = None
+        self.out.append((round(lat, 5), round(lon, 5), k, name[:60], ele))
 
     def node(self, n):
         if n.location.valid():
@@ -76,8 +87,11 @@ def main(src, out):
     h.apply_file(src, locations=True)
     tiles = defaultdict(list)
     count = defaultdict(int)
-    for lat, lon, k, name in h.out:
-        tiles[tile_of(lat, lon)].append([lat, lon, k, name] if name else [lat, lon, k])
+    for lat, lon, k, name, ele in h.out:
+        row = [lat, lon, k, name] if name or ele is not None else [lat, lon, k]
+        if ele is not None:
+            row.append(ele)
+        tiles[tile_of(lat, lon)].append(row)
         count[k] += 1
     os.makedirs(os.path.join(out, 'p'), exist_ok=True)
     names, total = [], 0
