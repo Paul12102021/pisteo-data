@@ -30,7 +30,8 @@ jobs:
 
       - name: Extrait France (Geofabrik)
         run: |
-          curl -fsSL --retry 3 -o france.osm.pbf https://download.geofabrik.de/europe/france-latest.osm.pbf
+          curl -fsSL --retry 3 -o france.osm.pbf https://download.geofabrik.de/europe/france-latest.osm.pbf \
+            || curl -fsSL --retry 3 -o france.osm.pbf https://download.openstreetmap.fr/extracts/europe/france-latest.osm.pbf  # secours si Geofabrik est en panne
           ls -lh france.osm.pbf
 
       - name: Garder seulement les parcours balisés
