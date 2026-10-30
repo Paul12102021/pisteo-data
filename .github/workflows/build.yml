@@ -41,11 +41,11 @@ jobs:
           osmium tags-filter france.osm.pbf $POI -o poi-france.osm.pbf
           rm france.osm.pbf
         env:
-          POI: nw/amenity=drinking_water,toilets,shelter,fountain nw/natural=spring,peak nw/tourism=alpine_hut,wilderness_hut,viewpoint nw/man_made=water_tap nw/shop=supermarket,convenience,general,greengrocer,deli,farm,bakery,pastry
+          POI: nw/amenity=drinking_water,toilets,shelter,fountain nw/natural=spring,peak nw/tourism=alpine_hut,wilderness_hut,viewpoint nw/man_made=water_tap nw/shop=supermarket,convenience,general,greengrocer,deli,farm,bakery,pastry nw/tourism=camp_site,hostel,guest_house,hotel n/railway=station,halt nw/amenity=bus_station
 
       - name: Points utiles des pays voisins (un pays à la fois, pour la place disque)
         env:
-          POI: nw/amenity=drinking_water,toilets,shelter,fountain nw/natural=spring,peak nw/tourism=alpine_hut,wilderness_hut,viewpoint nw/man_made=water_tap nw/shop=supermarket,convenience,general,greengrocer,deli,farm,bakery,pastry
+          POI: nw/amenity=drinking_water,toilets,shelter,fountain nw/natural=spring,peak nw/tourism=alpine_hut,wilderness_hut,viewpoint nw/man_made=water_tap nw/shop=supermarket,convenience,general,greengrocer,deli,farm,bakery,pastry nw/tourism=camp_site,hostel,guest_house,hotel n/railway=station,halt nw/amenity=bus_station
         run: |
           for c in andorra belgium luxembourg switzerland austria spain italy germany great-britain; do
             curl -fsSL --retry 3 -o c.osm.pbf "https://download.geofabrik.de/europe/$c-latest.osm.pbf" || { echo "échec $c"; continue; }
