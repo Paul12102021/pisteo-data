@@ -9,6 +9,7 @@ Chaque tuile : {"p": [[lat, lon, type, nom?], …]} avec lat/lon arrondis à 1e-
   p sommet (avec son altitude en 5e valeur) · v point de vue
   e épicerie, supérette, supermarché, primeur, magasin de producteurs · b boulangerie
     (commerces : horaires OSM « opening_hours » en 5e valeur quand ils sont connus)
+  m camping · h gîte, auberge, chambre d'hôtes, hôtel · g gare (train) ou gare routière
 Données © contributeurs OpenStreetMap, licence ODbL.
 """
 import json, math, os, sys, time
@@ -45,6 +46,14 @@ def kind(t):
         return 'p'
     if tour == 'viewpoint':
         return 'v'
+    if tour == 'camp_site':
+        return 'm'
+    if tour in ('hostel', 'guest_house', 'hotel'):
+        return 'h'
+    rw = t.get('railway')
+    if (rw in ('station', 'halt') and t.get('station') not in ('subway', 'light_rail', 'monorail', 'funicular', 'miniature')
+            and t.get('usage') != 'tourism' and t.get('name')) or (a == 'bus_station' and t.get('name')):
+        return 'g'
     sh = t.get('shop')
     if sh in ('supermarket', 'convenience', 'general', 'greengrocer', 'deli', 'farm'):
         return 'e'
