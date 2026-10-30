@@ -7,6 +7,8 @@ Sortie : des tuiles JSON de 0,25° × 0,25° (p/<x>_<y>.json) et poi.json (liste
 Chaque tuile : {"p": [[lat, lon, type, nom?], …]} avec lat/lon arrondis à 1e-5 et type :
   w eau potable · s source · t toilettes · a abri · r refuge gardé · c cabane non gardée
   p sommet (avec son altitude en 5e valeur) · v point de vue
+  e épicerie, supérette, supermarché, primeur, magasin de producteurs · b boulangerie
+    (commerces : horaires OSM « opening_hours » en 5e valeur quand ils sont connus)
 Données © contributeurs OpenStreetMap, licence ODbL.
 """
 import json, math, os, sys, time
@@ -43,6 +45,11 @@ def kind(t):
         return 'p'
     if tour == 'viewpoint':
         return 'v'
+    sh = t.get('shop')
+    if sh in ('supermarket', 'convenience', 'general', 'greengrocer', 'deli', 'farm'):
+        return 'e'
+    if sh in ('bakery', 'pastry'):
+        return 'b'
     return None
 
 
@@ -62,6 +69,8 @@ class H(osmium.SimpleHandler):
                 ele = round(float(str(t.get('ele', '')).replace(',', '.').split(';')[0].replace('m', '').strip()))
             except ValueError:
                 ele = None
+        if k in ('e', 'b'):
+            ele = (t.get('opening_hours') or '')[:160] or None  # horaires du commerce (texte OSM)
         self.out.append((round(lat, 5), round(lon, 5), k, name[:60], ele))
 
     def node(self, n):
