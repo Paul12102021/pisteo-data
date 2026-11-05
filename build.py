@@ -23,6 +23,25 @@ SKIP_ROLES = {'alternative', 'excursion', 'approach', 'connection', 'link', 'bac
 TAGS_KEEP = ('name', 'name:fr', 'ref', 'network', 'distance', 'operator', 'osmc:symbol')
 
 
+def way_kind(t):
+    """Type de voie, comme rtWayKind dans Pisteo : pc piste cyclable, bd bande, ch chemin, pr petite route, rt route, au autre."""
+    h = t.get('highway', '')
+    side = [t.get(k, '') for k in ('cycleway', 'cycleway:both', 'cycleway:right', 'cycleway:left')]
+    if h == 'cycleway' or (h in ('path', 'footway', 'bridleway', 'track', 'pedestrian') and t.get('bicycle') == 'designated'):
+        return 'pc'
+    if 'track' in side:
+        return 'pc'
+    if any(v in ('lane', 'opposite_lane') for v in side):
+        return 'bd'
+    if h in ('track', 'path', 'footway', 'bridleway', 'steps'):
+        return 'ch'
+    if h.replace('_link', '') in ('primary', 'secondary', 'tertiary', 'trunk'):
+        return 'rt'
+    if h in ('residential', 'unclassified', 'service', 'living_street', 'road', 'pedestrian', 'busway'):
+        return 'pr'
+    return 'au'
+
+
 def hav(a_lat, a_lon, b_lat, b_lon):
     r = math.radians
     dl, dn = r(b_lat - a_lat), r(b_lon - a_lon)
@@ -91,6 +110,7 @@ def tile_of(lat, lon):
 def main(src, out):
     t0 = time.time()
     ways = {}          # id -> array('i') [lat1e6, lon1e6, …]
+    wkind = {}         # id -> type de voie (« Types de voie » de Pisteo sans demande au serveur)
     routes = []        # (id, kind, tags, [(way_id, role)])
     wanted = set()
     for o in osmium.FileProcessor(src).with_locations():
@@ -106,6 +126,9 @@ def main(src, out):
                 coords.append(round(loc.lon * 1e6))
             if len(coords) >= 4:
                 ways[o.id] = coords
+                k = way_kind(o.tags)
+                if k != 'au':
+                    wkind[o.id] = k
         elif o.is_relation():
             t = dict(o.tags)
             if t.get('type') not in ('route', 'superroute') or t.get('route') not in KINDS:
@@ -169,7 +192,7 @@ def main(src, out):
     for (x, y), T in tiles.items():
         wl = [None] * len(T['w'])
         for w, i in T['w'].items():
-            wl[i] = [w, enc[w]]
+            wl[i] = [w, enc[w], wkind.get(w, 'au')]
         data = json.dumps({'r': T['r'], 'w': wl}, ensure_ascii=False, separators=(',', ':'))
         name = f'{x}_{y}'
         with open(os.path.join(out, 't', name + '.json'), 'w', encoding='utf-8') as f:
