@@ -118,6 +118,10 @@ class Cells:
         j = api(self.host, {'list': 'geosearch', 'gscoord': f'{clat:.5f}|{clon:.5f}', 'gsradius': max(10, radius),
                             'gslimit': 500, 'gsnamespace': self.ns})
         res = j.get('query', {}).get('geosearch', [])
+        stats[f'{self.host[:7]} réponses'] += len(res)
+        if res and not stats[f'{self.host[:7]} exemple']:
+            stats[f'{self.host[:7]} exemple'] = 1
+            print('exemple', self.host, json.dumps(res[0], ensure_ascii=False)[:300], flush=True)
         if len(res) >= 500 and level < 3:
             out = []
             for dx in (0, 1):
@@ -192,14 +196,23 @@ def text(html):
 
 def photo_of(ii):
     """Photo utilisable ? → (chemin de vignette, auteur, licence, primée) ; sinon None."""
-    if not ii or ii.get('mime') != 'image/jpeg' or not ii.get('thumburl'):
+    if not ii:
+        stats['photo sans détails'] += 1
+        return None
+    if ii.get('mime') != 'image/jpeg' or not ii.get('thumburl'):
+        stats['photo pas JPEG ou sans vignette'] += 1
         return None
     w, h = ii.get('width') or 0, ii.get('height') or 1
     if w < 1000 or not 1.15 <= w / h <= 2.4:
+        stats['photo petite ou pas paysage'] += 1
         return None
     m = THUMB.match(ii['thumburl'])
     if not m or m.group(2) != m.group(3):
+        stats['photo adresse inattendue'] += 1
+        if stats['photo adresse inattendue'] <= 3:
+            print('adresse inattendue', ii['thumburl'][:300], flush=True)
         return None  # nom trop long (vignette renommée) ou adresse inattendue
+    stats['photo gardée'] += 1
     em = ii.get('extmetadata') or {}
     val = lambda k: (em.get(k) or {}).get('value') or ''
     return m.group(1), text(val('Artist'))[:50], text(val('LicenseShortName'))[:30], 1 if val('Assessments') else 0
@@ -211,6 +224,7 @@ def main():
     ap.add_argument('--minutes', type=float, default=90)
     ap.add_argument('--near', default='49.18,-0.37')
     ap.add_argument('--tiles', type=int, default=0, help='nombre maximal de tuiles à traiter (0 = pas de limite)')
+    ap.add_argument('--force', action='store_true', help='recalculer même les fiches déjà faites')
     a = ap.parse_args()
     t0 = time.time()
     today = time.strftime('%Y-%m-%d')
@@ -258,7 +272,7 @@ def main():
                 h = hashlib.md5((','.join(map(str, sorted(R['w']))) + f':{R["len"]}').encode()).hexdigest()[:8]
                 o = old.get(str(rid))
                 age = (time.mktime(time.strptime(today, '%Y-%m-%d')) - time.mktime(time.strptime(o['t'], '%Y-%m-%d'))) / 86400 if o else 1e9
-                if o and o.get('h') == h and age < KEEP_DAYS:
+                if o and o.get('h') == h and age < KEEP_DAYS and not a.force:
                     out[str(rid)] = o
                     reused += 1
                 else:
@@ -291,6 +305,8 @@ def main():
                             per[spot(c[2], c[3])] += 1
                             keep.append(c)
                     cand[rid] = keep
+                    stats['photos près d\'un tracé'] += len(near_ph)
+                    stats['photos candidates'] += len(keep)
                 need = sorted({c[1] for cs in cand.values() for c in cs if c[1] not in infos})
                 batches = [need[i:i + 50] for i in range(0, len(need), 50)]
 
@@ -298,6 +314,9 @@ def main():
                     j = api('commons.wikimedia.org', {'titles': '|'.join(titles), 'prop': 'imageinfo', 'iiprop': 'url|size|mime|extmetadata',
                                                       'iiurlwidth': 330, 'iiextmetadatafilter': 'Artist|LicenseShortName|Assessments', 'iiextmetadatalanguage': 'fr'})
                     q = j.get('query', {})
+                    if not stats['détails exemple']:
+                        stats['détails exemple'] = 1
+                        print('exemple détails', json.dumps(j, ensure_ascii=False)[:900], flush=True)
                     back = {n['to']: n['from'] for n in q.get('normalized', [])}
                     res = {t: None for t in titles}
                     for pg in q.get('pages', []):
@@ -359,6 +378,7 @@ def main():
         with open(os.path.join(a.site, 'info.json'), 'w', encoding='utf-8') as f:
             json.dump({'v': 1, 'date': today, 'grid': GRID, 'tiles': ready, 'routes': n_ready, 'total': len(routes),
                        'attribution': 'Photos © leurs auteurs (Wikimedia Commons, licences libres) ; lieux : Wikipédia (CC BY-SA)'}, f, ensure_ascii=False, separators=(',', ':'))
+        print('détail :', dict(stats), flush=True)
         print(f'fin : {fresh} fiches calculées, {reused} gardées, {len(ready)}/{len(home)} tuiles prêtes ({n_ready}/{len(routes)} parcours), '
               f'{stats["demandes"]} demandes, {stats["erreurs"]} erreurs, {(time.time() - t0) / 60:.1f} min', flush=True)
 

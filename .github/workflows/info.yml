@@ -14,6 +14,9 @@ on:
       near:
         description: 'Commencer autour de ce point (lat,lon)'
         default: '49.18,-0.37'
+      force:
+        description: 'Recalculer même les fiches déjà faites (oui / non)'
+        default: 'non'
 
 permissions:
   contents: write
@@ -33,7 +36,7 @@ jobs:
         run: git clone -q --depth 1 -b gh-pages "https://github.com/${{ github.repository }}.git" site
 
       - name: Photos (Wikimedia Commons) et lieux (Wikipédia) de chaque parcours
-        run: python3 info.py site --minutes "${{ inputs.minutes || '90' }}" --tiles "${{ inputs.tiles || '0' }}" --near "${{ inputs.near || '49.18,-0.37' }}"
+        run: python3 info.py site --minutes "${{ inputs.minutes || '90' }}" --tiles "${{ inputs.tiles || '0' }}" --near "${{ inputs.near || '49.18,-0.37' }}" ${{ inputs.force == 'oui' && '--force' || '' }}
 
       - name: Publier (ajouté à la branche gh-pages)
         if: always()
