@@ -23,6 +23,20 @@ SKIP_ROLES = {'alternative', 'excursion', 'approach', 'connection', 'link', 'bac
 TAGS_KEEP = ('name', 'name:fr', 'ref', 'network', 'distance', 'operator', 'osmc:symbol')
 
 
+def route_tags(t):
+    """Fiche d'un parcours : les balises utiles à Pisteo, plus sa description et son site officiel quand ils existent."""
+    out = {k: t[k] for k in TAGS_KEEP if k in t}
+    desc = ' '.join((t.get('description:fr') or t.get('description') or '').split())
+    if len(desc) >= 15:
+        out['description'] = desc[:300]
+    for k in ('website', 'url', 'contact:website'):
+        u = t.get(k, '').strip()
+        if u.startswith(('http://', 'https://')) and len(u) <= 200 and not any(c in u for c in ' "<>'):
+            out['website'] = u
+            break
+    return out
+
+
 def way_kind(t):
     """Type de voie, comme rtWayKind dans Pisteo : pc piste cyclable, bd bande, ch chemin, pr petite route, rt route, au autre."""
     h = t.get('highway', '')
@@ -138,7 +152,7 @@ def main(src, out):
             mem = [(m.ref, m.role or '') for m in o.members if m.type == 'w' and (m.role or '') not in SKIP_ROLES]
             if not mem:
                 continue  # super-itinéraire sans chemins propres : ses sections ont leur propre fiche
-            routes.append((o.id, KINDS[t['route']], {k: t[k] for k in TAGS_KEEP if k in t}, mem))
+            routes.append((o.id, KINDS[t['route']], route_tags(t), mem))
     print(f'lecture : {len(ways)} chemins, {len(routes)} parcours, {time.time() - t0:.0f} s', flush=True)
 
     # simplification et encodage de chaque chemin utilisé (une seule fois, même s'il sert à plusieurs parcours)
