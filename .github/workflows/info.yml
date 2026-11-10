@@ -1,0 +1,47 @@
+name: Photos et lieux des parcours (Wikimedia)
+
+on:
+  schedule:
+    - cron: '41 0 * * *'    # chaque nuit, 0 h 41 UTC : reprend là où le passage précédent s'est arrêté
+  workflow_dispatch:        # bouton « Run workflow » pour lancer à la main
+    inputs:
+      minutes:
+        description: 'Durée maximale du calcul, en minutes'
+        default: '90'
+      tiles:
+        description: 'Nombre maximal de tuiles à calculer (0 = pas de limite)'
+        default: '0'
+      near:
+        description: 'Commencer autour de ce point (lat,lon)'
+        default: '49.18,-0.37'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build            # jamais en même temps que le calcul des tuiles : les deux écrivent sur gh-pages
+  cancel-in-progress: false
+
+jobs:
+  info:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Données publiées (branche gh-pages)
+        run: git clone -q --depth 1 -b gh-pages "https://github.com/${{ github.repository }}.git" site
+
+      - name: Photos (Wikimedia Commons) et lieux (Wikipédia) de chaque parcours
+        run: python3 info.py site --minutes "${{ inputs.minutes || '90' }}" --tiles "${{ inputs.tiles || '0' }}" --near "${{ inputs.near || '49.18,-0.37' }}"
+
+      - name: Publier (ajouté à la branche gh-pages)
+        if: always()
+        run: |
+          cd site
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A i info.json
+          git diff --cached --quiet && { echo "rien de nouveau"; exit 0; }
+          git commit -q -m "Photos et lieux du $(date +%Y-%m-%d)"
+          git push -q "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" gh-pages

@@ -62,6 +62,13 @@ jobs:
           python3 build.py routes.osm.pbf out
           python3 poi.py poi.osm.pbf out
 
+      - name: Garder les photos et lieux déjà calculés (info.py)
+        run: |
+          git clone -q --depth 1 -b gh-pages "https://github.com/${{ github.repository }}.git" prev || exit 0
+          if [ -d prev/i ]; then cp -r prev/i out/i; fi
+          if [ -f prev/info.json ]; then cp prev/info.json out/; fi
+          rm -rf prev
+
       - name: Publier sur la branche gh-pages (sans historique)
         run: |
           cd out
