@@ -18,7 +18,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 300
     steps:
       - uses: actions/checkout@v5
 
@@ -33,33 +33,43 @@ jobs:
           curl -fsSL --retry 3 -o france.osm.pbf https://download.geofabrik.de/europe/france-latest.osm.pbf \
             || curl -fsSL --retry 3 -o france.osm.pbf https://download.openstreetmap.fr/extracts/europe/france-latest.osm.pbf  # secours si Geofabrik est en panne
           ls -lh france.osm.pbf
+          mkdir -p polys   # contour de chaque extrait : zones couvertes (cover.json)
+          curl -fsSL --retry 3 -o polys/france.poly https://download.geofabrik.de/europe/france.poly
 
       - name: Garder seulement les parcours balisés
         run: |
-          osmium tags-filter france.osm.pbf r/route=hiking,foot,bicycle,mtb -o routes.osm.pbf
+          osmium tags-filter france.osm.pbf r/route=hiking,foot,bicycle,mtb -o routes-france.osm.pbf
           # points utiles : eau, sources, toilettes, abris, refuges et cabanes, commerces d'alimentation
           osmium tags-filter france.osm.pbf $POI -o poi-france.osm.pbf
           rm france.osm.pbf
         env:
           POI: nw/amenity=drinking_water,toilets,shelter,fountain nw/natural=spring,peak nw/tourism=alpine_hut,wilderness_hut,viewpoint nw/man_made=water_tap nw/shop=supermarket,convenience,general,greengrocer,deli,farm,bakery,pastry nw/tourism=camp_site,hostel,guest_house,hotel n/railway=station,halt nw/amenity=bus_station
 
-      - name: Points utiles des pays voisins (un pays à la fois, pour la place disque)
+      - name: Parcours balisés et points utiles des pays voisins (un pays à la fois, pour la place disque)
         env:
           POI: nw/amenity=drinking_water,toilets,shelter,fountain nw/natural=spring,peak nw/tourism=alpine_hut,wilderness_hut,viewpoint nw/man_made=water_tap nw/shop=supermarket,convenience,general,greengrocer,deli,farm,bakery,pastry nw/tourism=camp_site,hostel,guest_house,hotel n/railway=station,halt nw/amenity=bus_station
         run: |
           for c in andorra belgium luxembourg switzerland austria spain italy germany great-britain; do
             curl -fsSL --retry 3 -o c.osm.pbf "https://download.geofabrik.de/europe/$c-latest.osm.pbf" || { echo "échec $c"; continue; }
             osmium tags-filter c.osm.pbf $POI -o "poi-$c.osm.pbf"
+            # parcours balisés du pays, et contour de l'extrait (seulement si les parcours sont là)
+            if osmium tags-filter c.osm.pbf r/route=hiking,foot,bicycle,mtb -o "routes-$c.osm.pbf"; then
+              curl -fsSL --retry 3 -o "polys/$c.poly" "https://download.geofabrik.de/europe/$c.poly" || rm -f "routes-$c.osm.pbf"
+            fi
             rm c.osm.pbf
           done
           osmium merge poi-*.osm.pbf -o poi.osm.pbf
           rm poi-*.osm.pbf
-          ls -lh poi.osm.pbf
-          ls -lh routes.osm.pbf
+          ls -lh routes-*.osm.pbf
+          # un parcours qui passe une frontière est dans deux extraits : la fusion le garde une seule fois, avec tous ses chemins
+          osmium merge routes-*.osm.pbf -o routes.osm.pbf
+          rm routes-*.osm.pbf
+          ls -lh poi.osm.pbf routes.osm.pbf polys
 
       - name: Préparer les tuiles
         run: |
-          python3 build.py routes.osm.pbf out
+          /usr/bin/time -v python3 build.py routes.osm.pbf out polys 2> build.time || { tail -30 build.time; exit 1; }
+          grep -E 'Maximum resident|Elapsed' build.time
           python3 poi.py poi.osm.pbf out
 
       - name: Garder les photos et lieux déjà calculés (info.py)

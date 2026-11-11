@@ -7,7 +7,8 @@ Sortie : dans le même dossier, i/<x>_<y>.json et info.json (liste des tuiles pr
 Pour chaque parcours :
   - les photos libres de Wikimedia Commons prises à moins de 150 m du tracé (JPEG, format paysage,
     1000 px de large au moins), avec leur auteur et leur licence ;
-  - les lieux qui ont un article sur Wikipédia en français à moins de 250 m du tracé.
+  - les lieux qui ont un article sur Wikipédia à moins de 250 m du tracé, dans la ou les langues du pays
+    (cover.json dit dans quel pays est le parcours ; France : français, Allemagne : allemand, Suisse : allemand, français, italien…).
 La fiche d'un parcours est rangée dans UNE tuile : celle du coin sud-ouest de son rectangle englobant.
 
   i/<x>_<y>.json = {"<id du parcours>": {"h": empreinte du tracé, "t": "AAAA-MM-JJ",
@@ -35,7 +36,14 @@ THREADS = 10
 UA = 'PisteoData/1.0 (https://pisteo.app; pisteo.app@gmail.com)'
 # mêmes filtres que dans l'appli (app.js : RT_PH_SKIP, RT_WIKI_SKIP)
 PH_SKIP = re.compile(r"plaque|panneau|blason|armoiries|\bcarte\b|\bplan\b|\bmap\b|logo|int[ée]rieur|interior|vitrail|vitraux|tombe|cimeti[èe]re|monument aux morts|portrait|affiche|timbre|inscription|\bborne\b|carte postale|\bCPA\b|d[ée]tail|\bgare\b|mairie|[ée]cole|signalisation|autoroute|cadastre|document|archives?\b|\bscan\b|overlord|\bchart\b", re.I)
-WIKI_SKIP = re.compile(r"^(Liste|Canton|Communauté|Arrondissement|Ligne|Gare|Halte|Route|Autoroute|Circonscription|Élection|Unité urbaine|Aire d'attraction|Bataille|Paroisse|Diocèse|Intercommunalité|Tramway|Métro|Station)\b", re.I)
+WIKI_SKIP = re.compile(r"^(Liste|Canton|Communauté|Arrondissement|Ligne|Gare|Halte|Route|Autoroute|Circonscription|Élection|Unité urbaine|Aire d'attraction|Bataille|Paroisse|Diocèse|Intercommunalité|Tramway|Métro|Station"
+                       r"|Bahnhof|Haltepunkt|Bahnstrecke|Bundesstraße|Bundesautobahn|Landesstraße|Kreisstraße|Staatsstraße|Landkreis|Verwaltungsgemeinschaft|Hauptstrasse|Autobahn"
+                       r"|Stazione|Ferrovia|Strada (statale|provinciale|regionale)|Autostrada|Lista|Estación|Línea|Carretera|Autovía|Autopista|Anexo|Apeadero"
+                       r"|List of|Lijst|Spoorlijn|Station|[ABMN]\d+ (road|motorway)|[A-Z]{1,2}[ -]?\d+$)\b"
+                       r"|(railway station|railway line|\(Bahnhof\)| station)$", re.I)
+# Wikipédia interrogé selon le pays du parcours (zones de cover.json = extraits Geofabrik), dans cet ordre
+WIKIS = {'france': ['fr'], 'andorra': ['ca', 'fr'], 'belgium': ['fr', 'nl'], 'luxembourg': ['fr', 'de'], 'switzerland': ['de', 'fr', 'it'],
+         'austria': ['de'], 'germany': ['de'], 'italy': ['it'], 'spain': ['es'], 'great-britain': ['en']}
 # adresse de vignette donnée par Wikimedia (thumb.wikimedia.org depuis 2026, upload.wikimedia.org avant), suivie ou non de « ?utm_… »
 THUMB = re.compile(r'^(https://(?:thumb|upload)\.wikimedia\.org/wikipedia/commons/thumb/)([0-9a-f]/[0-9a-f]{2}/([^/?]+))/\d+px-([^/?]+)(?:\?.*)?$')
 thumb_base = ['https://thumb.wikimedia.org/wikipedia/commons/thumb/']
@@ -187,6 +195,36 @@ class Shape:
         return out
 
 
+def in_ring(lat, lon, ring):
+    inside, j = False, len(ring) - 1
+    for i in range(len(ring)):
+        xi, yi = ring[i]
+        xj, yj = ring[j]
+        if (yi > lat) != (yj > lat) and lon < (xj - xi) * (lat - yi) / (yj - yi) + xi:
+            inside = not inside
+        j = i
+    return inside
+
+
+class Cover:
+    """Zones couvertes (cover.json) : dans quel pays est un point ? Sans fichier : la France."""
+
+    def __init__(self, path):
+        self.areas = []
+        if os.path.exists(path):
+            for a in json.load(open(path, encoding='utf-8')).get('areas', []):
+                rings = [p[0] for p in a['polys']]
+                box = [(min(x for x, _ in r), min(y for _, y in r), max(x for x, _ in r), max(y for _, y in r)) for r in rings]
+                self.areas.append((a['id'], rings, box))
+
+    def of(self, lat, lon):
+        for name, rings, box in self.areas:
+            for r, (w, s_, e, n) in zip(rings, box):
+                if w <= lon <= e and s_ <= lat <= n and in_ring(lat, lon, r):
+                    return name
+        return 'france'
+
+
 def spot(lat, lon):
     """Case d'environ 500 m, pour répartir les photos le long du parcours."""
     return int(lat / 0.0045), int(lon / 0.0065)
@@ -224,7 +262,7 @@ def photo_of(ii):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('site')
-    ap.add_argument('--minutes', type=float, default=90)
+    ap.add_argument('--minutes', type=float, default=300)
     ap.add_argument('--near', default='49.18,-0.37')
     ap.add_argument('--tiles', type=int, default=0, help='nombre maximal de tuiles à traiter (0 = pas de limite)')
     ap.add_argument('--force', action='store_true', help='recalculer même les fiches déjà faites')
@@ -254,7 +292,9 @@ def main():
 
     os.makedirs(os.path.join(a.site, 'i'), exist_ok=True)
     photos = Cells('commons.wikimedia.org', 0.05, PHOTO_M, 6, lambda t: bool(re.search(r'\.jpe?g$', t, re.I)) and not PH_SKIP.search(t))
-    places = Cells('fr.wikipedia.org', 0.1, PLACE_M, 0, lambda t: True)
+    wikis = {}   # langue → cases de ce Wikipédia
+    cover = Cover(os.path.join(a.site, 'cover.json'))
+    grid01 = Cells('', 0.1, PLACE_M, 0, lambda t: True)   # sert seulement à nommer les cases de 0,1°
     infos = {}   # titre de fichier → photo_of(...) ou None
     done = fresh = reused = 0
     pool = ThreadPoolExecutor(THREADS)
@@ -285,9 +325,16 @@ def main():
                     continue  # plus de temps : les tuiles restantes gardent leurs fiches actuelles
                 shapes = {rid: Shape([decode(ways[w]) for w in routes[rid]['w']]) for rid, _ in todo}
                 pc = {rid: s.cells(photos, PHOTO_M) for rid, s in shapes.items()}
-                wc = {rid: s.cells(places, PLACE_M) for rid, s in shapes.items()}
+                wc = {rid: s.cells(grid01, PLACE_M) for rid, s in shapes.items()}
                 photos.load(sorted(set().union(*pc.values())), pool)
-                places.load(sorted(set().union(*wc.values())), pool)
+                lang = {}
+                for rid, _ in todo:
+                    bb = routes[rid]['bb']
+                    lang[rid] = WIKIS.get(cover.of((bb[0] + bb[2]) / 2, (bb[1] + bb[3]) / 2), ['fr'])
+                for lg in sorted({l for ls in lang.values() for l in ls}):
+                    if lg not in wikis:
+                        wikis[lg] = Cells(f'{lg}.wikipedia.org', 0.1, PLACE_M, 0, lambda t: True, cap=3000)
+                    wikis[lg].load(sorted(set().union(*(wc[rid] for rid, _ in todo if lg in lang[rid]))), pool)
                 # 3. photos candidates : près du tracé, 2 au plus par case de 500 m, les plus proches d'abord
                 cand = {}
                 for rid, _ in todo:
@@ -343,15 +390,20 @@ def main():
                             picked.append(o)
                     p = [[infos[t][0], round(lat, 5), round(lon, 5), infos[t][1], infos[t][2], infos[t][3]] for _, _, t, lat, lon in picked]
                     seen, near_pl = set(), []
-                    for k in wc[rid]:
-                        for title, lat, lon in places.memo[k]:
-                            nm = re.sub(r'\s*\([^)]*\)$', '', title)
-                            if nm in seen or len(nm) > 45 or WIKI_SKIP.search(nm):
-                                continue
-                            d = s.near(lat, lon)
-                            if d <= PLACE_M:
-                                seen.add(nm)
-                                near_pl.append((d, nm, lat, lon))
+                    for lg in lang[rid]:                 # la première langue du pays d'abord ; un même lieu n'est gardé qu'une fois
+                        got = []
+                        for k in wc[rid]:
+                            for title, lat, lon in wikis[lg].memo[k]:
+                                nm = re.sub(r'\s*\([^)]*\)$', '', title)
+                                if nm in seen or len(nm) > 45 or WIKI_SKIP.search(nm) or WIKI_SKIP.search(title):
+                                    continue
+                                if any(dist(lat, lon, o[2], o[3]) < 150 for o in near_pl):
+                                    continue
+                                d = s.near(lat, lon)
+                                if d <= PLACE_M:
+                                    seen.add(nm)
+                                    got.append((d, nm, lat, lon))
+                        near_pl += got
                     near_pl.sort()
                     w = [[nm, round(lat, 5), round(lon, 5)] for _, nm, lat, lon in near_pl[:int(min(40, max(6, math.ceil(km))))]]
                     out[str(rid)] = {'h': h, 't': today, 'p': p, 'w': w}

@@ -7,7 +7,7 @@ on:
     inputs:
       minutes:
         description: 'Durée maximale du calcul, en minutes'
-        default: '90'
+        default: '300'
       tiles:
         description: 'Nombre maximal de tuiles à calculer (0 = pas de limite)'
         default: '0'
@@ -36,7 +36,7 @@ jobs:
         run: git clone -q --depth 1 -b gh-pages "https://github.com/${{ github.repository }}.git" site
 
       - name: Photos (Wikimedia Commons) et lieux (Wikipédia) de chaque parcours
-        run: python3 info.py site --minutes "${{ inputs.minutes || '90' }}" --tiles "${{ inputs.tiles || '0' }}" --near "${{ inputs.near || '49.18,-0.37' }}" ${{ inputs.force == 'oui' && '--force' || '' }}
+        run: python3 info.py site --minutes "${{ inputs.minutes || '300' }}" --tiles "${{ inputs.tiles || '0' }}" --near "${{ inputs.near || '49.18,-0.37' }}" ${{ inputs.force == 'oui' && '--force' || '' }}
 
       - name: Publier (ajouté à la branche gh-pages)
         if: always()

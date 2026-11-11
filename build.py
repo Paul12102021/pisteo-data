@@ -63,8 +63,8 @@ def hav(a_lat, a_lon, b_lat, b_lon):
     return 2 * 6371000 * math.asin(min(1, math.sqrt(x)))
 
 
-def simplify(pts):
-    """Douglas-Peucker (itératif) sur des points (lat, lon) en degrés ; tolérance TOL mètres."""
+def simplify(pts, tol=None):
+    """Douglas-Peucker (itératif) sur des points (lat, lon) en degrés ; tolérance TOL mètres (ou tol)."""
     n = len(pts)
     if n < 3:
         return pts
@@ -74,7 +74,7 @@ def simplify(pts):
     keep = bytearray(n)
     keep[0] = keep[-1] = 1
     stack = [(0, n - 1)]
-    tol2 = TOL * TOL
+    tol2 = (tol or TOL) ** 2
     while stack:
         a, b = stack.pop()
         if b <= a + 1:
@@ -121,7 +121,46 @@ def tile_of(lat, lon):
     return int(math.floor((lon + 180) / GRID)), int(math.floor((lat + 90) / GRID))
 
 
-def main(src, out):
+def read_poly(path):
+    """Contour d'un extrait Geofabrik (.poly) → anneaux extérieurs [(lat, lon), …] ; les trous sont ignorés."""
+    rings, cur, hole = [], None, False
+    with open(path, encoding='utf-8') as f:
+        lines = [l.strip() for l in f][1:]   # la 1re ligne est le nom de la zone
+    for l in lines:
+        if cur is None:
+            if l and l != 'END':
+                cur, hole = [], l.startswith('!')
+        elif l == 'END':
+            if not hole and len(cur) >= 4:
+                rings.append(cur)
+            cur = None
+        elif l:
+            a = l.split()
+            cur.append((float(a[1]), float(a[0])))
+    return rings
+
+
+def write_cover(polys, out):
+    """Zones couvertes par les tuiles (contours des extraits, simplifiés à 800 m) : l'appli sait ainsi où les tuiles
+    sont complètes, et info.py dans quel pays se trouve un parcours. → cover.json ; renvoie la liste des zones."""
+    areas = []
+    for name in sorted(os.listdir(polys)):
+        if not name.endswith('.poly'):
+            continue
+        rings = [simplify(r, 800) for r in read_poly(os.path.join(polys, name))]
+        rings = [r for r in rings if len(r) >= 4]
+        if rings:
+            areas.append({'id': name[:-5], 'polys': [[[[round(lon, 3), round(lat, 3)] for lat, lon in r]] for r in rings]})
+    if not any(a['id'] == 'france' for a in areas):
+        raise SystemExit('contour de la France introuvable : rien n\'est publié')
+    areas.sort(key=lambda a: a['id'] != 'france')   # la France d'abord : un point proche d'une frontière lui est attribué
+    with open(os.path.join(out, 'cover.json'), 'w', encoding='utf-8') as f:
+        json.dump({'v': 1, 'areas': areas}, f, separators=(',', ':'))
+    print('zones couvertes :', ', '.join(f"{a['id']} ({sum(len(p[0]) for p in a['polys'])} points)" for a in areas), flush=True)
+    return [a['id'] for a in areas]
+
+
+def main(src, out, polys=None):
     t0 = time.time()
     ways = {}          # id -> array('i') [lat1e6, lon1e6, …]
     wkind = {}         # id -> type de voie (« Types de voie » de Pisteo sans demande au serveur)
@@ -216,6 +255,7 @@ def main(src, out):
     names.sort()
     manifest = {'v': 1, 'date': time.strftime('%Y-%m-%d'), 'grid': GRID, 'routes': nroutes,
                 'tiles': names, 'bytes': total,
+                'areas': write_cover(polys, out) if polys else ['france'],   # zones couvertes, détail dans cover.json
                 'attribution': 'Données © contributeurs OpenStreetMap (ODbL)'}
     with open(os.path.join(out, 'manifest.json'), 'w', encoding='utf-8') as f:
         json.dump(manifest, f, ensure_ascii=False, separators=(',', ':'))
@@ -243,4 +283,4 @@ def decode(s):
 
 
 if __name__ == '__main__':
-    main(sys.argv[1], sys.argv[2])
+    main(sys.argv[1], sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else None)
