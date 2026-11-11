@@ -13,7 +13,7 @@ La fiche d'un parcours est rangée dans UNE tuile : celle du coin sud-ouest de s
   i/<x>_<y>.json = {"<id du parcours>": {"h": empreinte du tracé, "t": "AAAA-MM-JJ",
                     "p": [[chemin de la vignette, lat, lon, auteur, licence, primée 0/1], …],
                     "w": [[nom du lieu, lat, lon], …]}, …}
-  chemin de la vignette : « a/ab/Nom.jpg » → https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Nom.jpg/330px-Nom.jpg
+  chemin de la vignette : « a/ab/Nom.jpg » → <thumb de info.json>a/ab/Nom.jpg/330px-Nom.jpg (ou 960px-)
                           page de la photo : https://commons.wikimedia.org/wiki/File:Nom.jpg
 
 Le calcul est repris d'un passage à l'autre : une fiche déjà faite est gardée tant que le tracé n'a pas
@@ -30,13 +30,15 @@ from concurrent.futures import ThreadPoolExecutor
 GRID = 0.25                 # tuiles de données (comme build.py)
 PHOTO_M, PLACE_M = 150, 250  # distance maximale au tracé, en mètres
 KEEP_DAYS = 150             # une fiche est recalculée au bout de ce délai, même si le tracé n'a pas changé
-RATE = 10                   # demandes par seconde, au plus
-THREADS = 6
+RATE = 12                   # demandes par seconde, au plus
+THREADS = 10
 UA = 'PisteoData/1.0 (https://pisteo.app; pisteo.app@gmail.com)'
 # mêmes filtres que dans l'appli (app.js : RT_PH_SKIP, RT_WIKI_SKIP)
 PH_SKIP = re.compile(r"plaque|panneau|blason|armoiries|\bcarte\b|\bplan\b|\bmap\b|logo|int[ée]rieur|interior|vitrail|vitraux|tombe|cimeti[èe]re|monument aux morts|portrait|affiche|timbre|inscription|\bborne\b|carte postale|\bCPA\b|d[ée]tail|\bgare\b|mairie|[ée]cole|signalisation|autoroute|cadastre|document|archives?\b|\bscan\b|overlord|\bchart\b", re.I)
 WIKI_SKIP = re.compile(r"^(Liste|Canton|Communauté|Arrondissement|Ligne|Gare|Halte|Route|Autoroute|Circonscription|Élection|Unité urbaine|Aire d'attraction|Bataille|Paroisse|Diocèse|Intercommunalité|Tramway|Métro|Station)\b", re.I)
-THUMB = re.compile(r'^https://upload\.wikimedia\.org/wikipedia/commons/thumb/([0-9a-f]/[0-9a-f]{2}/([^/]+))/\d+px-([^/]+)$')
+# adresse de vignette donnée par Wikimedia (thumb.wikimedia.org depuis 2026, upload.wikimedia.org avant), suivie ou non de « ?utm_… »
+THUMB = re.compile(r'^(https://(?:thumb|upload)\.wikimedia\.org/wikipedia/commons/thumb/)([0-9a-f]/[0-9a-f]{2}/([^/?]+))/\d+px-([^/?]+)(?:\?.*)?$')
+thumb_base = ['https://thumb.wikimedia.org/wikipedia/commons/thumb/']
 TAG = re.compile(r'<[^>]+>')
 
 
@@ -207,15 +209,16 @@ def photo_of(ii):
         stats['photo petite ou pas paysage'] += 1
         return None
     m = THUMB.match(ii['thumburl'])
-    if not m or m.group(2) != m.group(3):
+    if not m or m.group(3) != m.group(4):
         stats['photo adresse inattendue'] += 1
         if stats['photo adresse inattendue'] <= 3:
             print('adresse inattendue', ii['thumburl'][:300], flush=True)
         return None  # nom trop long (vignette renommée) ou adresse inattendue
     stats['photo gardée'] += 1
+    thumb_base[0] = m.group(1)
     em = ii.get('extmetadata') or {}
     val = lambda k: (em.get(k) or {}).get('value') or ''
-    return m.group(1), text(val('Artist'))[:50], text(val('LicenseShortName'))[:30], 1 if val('Assessments') else 0
+    return m.group(2), text(val('Artist'))[:50], text(val('LicenseShortName'))[:30], 1 if val('Assessments') else 0
 
 
 def main():
@@ -376,7 +379,7 @@ def main():
                     n_ready += len(home[tk])
         ready.sort()
         with open(os.path.join(a.site, 'info.json'), 'w', encoding='utf-8') as f:
-            json.dump({'v': 1, 'date': today, 'grid': GRID, 'tiles': ready, 'routes': n_ready, 'total': len(routes),
+            json.dump({'v': 1, 'date': today, 'grid': GRID, 'tiles': ready, 'routes': n_ready, 'total': len(routes), 'thumb': thumb_base[0],
                        'attribution': 'Photos © leurs auteurs (Wikimedia Commons, licences libres) ; lieux : Wikipédia (CC BY-SA)'}, f, ensure_ascii=False, separators=(',', ':'))
         print('détail :', dict(stats), flush=True)
         print(f'fin : {fresh} fiches calculées, {reused} gardées, {len(ready)}/{len(home)} tuiles prêtes ({n_ready}/{len(routes)} parcours), '
