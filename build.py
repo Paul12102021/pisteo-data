@@ -9,7 +9,7 @@ Chaque tuile contient les chemins (ways) des parcours qui la traversent, simplif
 encodés en « polyline » (précision 1e-5), et la fiche de chaque parcours concerné.
 Données © contributeurs OpenStreetMap, licence ODbL.
 """
-import json, math, os, sys, time
+import json, math, os, re, sys, time
 from array import array
 from collections import defaultdict
 
@@ -21,6 +21,10 @@ KINDS = {'hiking': 'h', 'foot': 'f', 'bicycle': 'b', 'mtb': 'm'}
 SKIP_ROLES = {'alternative', 'excursion', 'approach', 'connection', 'link', 'backward',
               'platform', 'stop', 'guidepost', 'start', 'end', 'information'}
 TAGS_KEEP = ('name', 'name:fr', 'ref', 'network', 'distance', 'operator', 'osmc:symbol')
+
+
+NODE_REF = re.compile(r'^\d{1,3}\s*[-–]\s*\d{1,3}$')   # « 13-27 » : tronçon entre deux points-nœuds
+MIN_LEN = 1500                                        # longueur minimale d'un parcours, en mètres
 
 
 def route_tags(t):
@@ -188,6 +192,10 @@ def main(src, out, polys=None):
                 continue
             if t.get('state') == 'proposed' or 'disused' in t or 'abandoned' in t:
                 continue
+            # réseaux à points-nœuds (Belgique, Pays-Bas, Allemagne) : chaque tronçon entre deux numéros est un « parcours »
+            # de quelques centaines de mètres ; ce ne sont pas des balades, et il y en a des centaines par commune
+            if t.get('network:type') == 'node_network' or (NODE_REF.match(t.get('ref', '')) and not t.get('name')):
+                continue
             mem = [(m.ref, m.role or '') for m in o.members if m.type == 'w' and (m.role or '') not in SKIP_ROLES]
             if not mem:
                 continue  # super-itinéraire sans chemins propres : ses sections ont leur propre fiche
@@ -222,6 +230,8 @@ def main(src, out, polys=None):
         if not mw:
             continue
         length = round(sum(wlen[w] for w, _ in mw))
+        if length < MIN_LEN:
+            continue  # tronçon de poteau à poteau (Forêt-Noire…) ou bout de parcours : pas une balade
         rtiles = set()
         for w, _ in mw:
             rtiles |= wtiles[w]
