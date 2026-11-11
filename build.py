@@ -25,6 +25,11 @@ TAGS_KEEP = ('name', 'name:fr', 'ref', 'network', 'distance', 'operator', 'osmc:
 
 NODE_REF = re.compile(r'^\d{1,3}\s*[-–]\s*\d{1,3}$')   # « 13-27 » : tronçon entre deux points-nœuds
 MIN_LEN = 1500                                        # longueur minimale d'un parcours, en mètres
+# Suisse : le réseau pédestre est saisi tronçon par tronçon, de poteau à poteau (« Spitzhof - Zinggen », 2 à 4 km) :
+# 222 des 370 « parcours » autour d'Entlebuch. Les parcours locaux nommés « A - B » de moins de 5 km y sont écartés.
+SEG_NAME = re.compile(r'^[^-–]+ [-–] [^-–]+$')
+SEG_AREAS = {'switzerland'}
+SEG_LEN = 5000
 
 
 def route_tags(t):
@@ -144,6 +149,36 @@ def read_poly(path):
     return rings
 
 
+def in_ring(lat, lon, ring):
+    inside, j = False, len(ring) - 1
+    for i in range(len(ring)):
+        yi, xi = ring[i]
+        yj, xj = ring[j]
+        if (yi > lat) != (yj > lat) and lon < (xj - xi) * (lat - yi) / (yj - yi) + xi:
+            inside = not inside
+        j = i
+    return inside
+
+
+def load_areas(polys):
+    """Zones des extraits [(nom, [anneaux simplifiés])], la France d'abord (un point proche d'une frontière lui est attribué)."""
+    areas = []
+    for name in sorted(os.listdir(polys)):
+        if name.endswith('.poly'):
+            rings = [r for r in (simplify(r, 800) for r in read_poly(os.path.join(polys, name))) if len(r) >= 4]
+            if rings:
+                areas.append((name[:-5], rings))
+    areas.sort(key=lambda a: a[0] != 'france')
+    return areas
+
+
+def area_of(areas, lat, lon):
+    for name, rings in areas:
+        if any(in_ring(lat, lon, r) for r in rings):
+            return name
+    return None
+
+
 def write_cover(polys, out):
     """Zones couvertes par les tuiles (contours des extraits, simplifiés à 800 m) : l'appli sait ainsi où les tuiles
     sont complètes, et info.py dans quel pays se trouve un parcours. → cover.json ; renvoie la liste des zones."""
@@ -224,7 +259,8 @@ def main(src, out, polys=None):
 
     # répartition par tuile
     tiles = defaultdict(lambda: {'r': [], 'w': {}})
-    nroutes = 0
+    nroutes = nseg = 0
+    areas = load_areas(polys) if polys else []
     for rid, kind, tags, mem in routes:
         mw = [(w, role) for w, role in mem if w in enc]
         if not mw:
@@ -232,6 +268,13 @@ def main(src, out, polys=None):
         length = round(sum(wlen[w] for w, _ in mw))
         if length < MIN_LEN:
             continue  # tronçon de poteau à poteau (Forêt-Noire…) ou bout de parcours : pas une balade
+        if length < SEG_LEN and areas and tags.get('network', 'lwn') in ('lwn', 'lcn') and SEG_NAME.match(tags.get('name', '')):
+            la, lo = [wbb[w] for w, _ in mw], None
+            clat = (min(b[0] for b in la) + max(b[2] for b in la)) / 2
+            clon = (min(b[1] for b in la) + max(b[3] for b in la)) / 2
+            if area_of(areas, clat, clon) in SEG_AREAS:
+                nseg += 1
+                continue
         rtiles = set()
         for w, _ in mw:
             rtiles |= wtiles[w]
@@ -269,6 +312,7 @@ def main(src, out, polys=None):
                 'attribution': 'Données © contributeurs OpenStreetMap (ODbL)'}
     with open(os.path.join(out, 'manifest.json'), 'w', encoding='utf-8') as f:
         json.dump(manifest, f, ensure_ascii=False, separators=(',', ':'))
+    print(f'tronçons « A - B » écartés (Suisse) : {nseg}', flush=True)
     print(f'écriture : {len(names)} tuiles, {nroutes} parcours, {total / 1e6:.1f} Mo, {time.time() - t0:.0f} s', flush=True)
 
 
