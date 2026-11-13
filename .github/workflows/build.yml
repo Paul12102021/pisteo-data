@@ -83,6 +83,7 @@ jobs:
         run: |
           cd out
           touch .nojekyll
+          echo data.pisteo.app > CNAME   # domaine de GitHub Pages (la branche est réécrite à chaque calcul)
           cat > index.html <<'HTML'
           <!doctype html><meta charset="utf-8"><title>Pisteo · données</title>
           <p>Parcours balisés pour l'appli Pisteo, préparés chaque mois.<br>
